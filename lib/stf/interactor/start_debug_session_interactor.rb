@@ -13,19 +13,19 @@ class StartDebugSessionInteractor
     @stf = stf
   end
 
-  def execute(wanted, all_flag, filter)
+  def execute(wanted, all_flag, filter, auto_adb_connect)
     wanted = 1 if wanted.nil?
     wanted = wanted.to_i
 
     1..10.times do
-      wanted -= connect(wanted, all_flag, filter)
+      wanted -= connect(wanted, all_flag, filter, auto_adb_connect)
       return if all_flag || wanted <= 0
       logger.info 'We are still waiting for ' + wanted.to_s + ' device(s). Retrying'
       sleep 5
     end
   end
 
-  def connect(wanted, all_flag, filter)
+  def connect(wanted, all_flag, filter, auto_adb_connect)
     devices = @stf.get_devices
     if devices.nil? || (devices.is_a?(Array) && devices.empty?)
       logger.info 'No devices connected to STF'
@@ -58,14 +58,14 @@ class StartDebugSessionInteractor
 
     n = 0
     usable_devices.shuffle.each do |d|
-      n += 1 if connect_device(d)
+      n += 1 if connect_device(d, auto_adb_connect)
       break if !all_flag && n >= wanted
     end
 
     n
   end
 
-  def connect_device(device)
+  def connect_device(device, auto_adb_connect)
     return false if device.nil?
 
     serial = device.serial
@@ -83,11 +83,26 @@ class StartDebugSessionInteractor
       return false
     end
 
-    execute_adb_with 30, "connect #{result.remoteConnectUrl}"
-    return true
+    logger.info "remoteConnectUrl: #{result.remoteConnectUrl}"
+
+    if auto_adb_connect
+      _execute_adb_with 30, "connect #{result.remoteConnectUrl}"
+    end
+
+    result = @stf.start_debug serial
+    unless result.success
+      logger.error "Can't start debugging session for device #{serial}"
+      @stf.remove_device serial
+    end
+
+    return result.success
 
   rescue Net::HTTPFatalError
     logger.error 'Failed to start debug session'
     return false
+  end
+
+  def _execute_adb_with(timeout, cmd)
+    execute_adb_with timeout, cmd
   end
 end
